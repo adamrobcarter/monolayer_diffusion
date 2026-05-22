@@ -1,22 +1,20 @@
 import numpy as np
 from pathlib import Path
 from numba import njit, prange
-from libMobility import DPStokes, NBody
 from functools import partial
-# import utils
-import libmobility_diffusion.utils as utils # idk why we can't just do `import utils`
 from copy import deepcopy
 import time
 import argparse
-import scipy.sparse.linalg as spla
-import pyamg
 import tqdm
 import place_colloids
 import scipy
-import json
+import libMobility
+import os
+import utils
+
 
 def main(a, mg, Lx, Ly, kbt, eta, phi, dt, t_final, t_save, solver_name, z_trap_width=None, z_trap_position=None,
-         wall=None, wall_sep=0.0, initial_distribution='flat', disable_lubrication=False, gravity=True,
+         wall=None, wall_sep=0.0, initial_distribution='flat', gravity=True,
          theta=0):
     
     assert wall in ['open', 'single_wall', 'two_walls']
@@ -78,14 +76,9 @@ def main(a, mg, Lx, Ly, kbt, eta, phi, dt, t_final, t_save, solver_name, z_trap_
     # with z_trap_width=a/2, use dt=0.02
 
     lub_cutoff = 1e-2
-    solver, lub = utils.create_solvers(
+    solver = utils.create_solvers(
         solver_name, Lx, Ly, a, eta, lub_cut=lub_cutoff, tol=1e-1, wall=wall, wall_sep=wall_sep
     )
-    using_lubrication_corrs = not lub is None
-    if disable_lubrication:
-        lub = None
-        using_lubrication_corrs = False
-    print("using lubrication corrections: ", using_lubrication_corrs)
 
     wall_to_place_colloids = wall
     if wall == 'two_walls':
@@ -112,7 +105,7 @@ def main(a, mg, Lx, Ly, kbt, eta, phi, dt, t_final, t_save, solver_name, z_trap_
         assert np.all(r_vecs[:, 2] > 0.95*a), f'r_vecs[:, 2].min() = {r_vecs[:, 2].min()/a}a'
         assert np.all(r_vecs[:, 2] < wall_sep - 0.95*a), f'r_vecs[:, 2].max() = {r_vecs[:, 2].max()/a}a'
 
-    output_dir = utils.get_simulation_dir(solver=solver_name, N=N, L=Lx, dt=dt, t_final=t_final, t_save=t_save, wall=wall, mg=mg, disable_lubrication=disable_lubrication, a=a)
+    output_dir = utils.get_simulation_dir(solver=solver_name, N=N, L=Lx, dt=dt, t_final=t_final, t_save=t_save, wall=wall, mg=mg, disable_lubrication=False, a=a)
     # output_dir = "TEMP/"
     print(f"Output directory: {output_dir}")
     Path(output_dir).mkdir(parents=True, exist_ok=True)
@@ -155,7 +148,6 @@ def main(a, mg, Lx, Ly, kbt, eta, phi, dt, t_final, t_save, solver_name, z_trap_
         "debye_length": debye_length,
         "U_0": U_0,
         "firm_delta": firm_delta,
-        "lub_cutoff": lub_cutoff,
         "dt": dt,
         "T_final": t_final,
         "n_steps": n_steps,
@@ -166,7 +158,6 @@ def main(a, mg, Lx, Ly, kbt, eta, phi, dt, t_final, t_save, solver_name, z_trap_
         "n_save": n_save,
         "wall": wall,
         'initial_distribution': initial_distribution,
-        'lubrication': using_lubrication_corrs,
     }
     if z_trap_width:
         params["z_trap_width"] = z_trap_width
@@ -184,19 +175,14 @@ def main(a, mg, Lx, Ly, kbt, eta, phi, dt, t_final, t_save, solver_name, z_trap_
 
     r_vecs = r_vecs.flatten()
 
-    if not using_lubrication_corrs:
-        # initialise v_prev
-        solver.setPositions(r_vecs)
-        forces = F_calc(r_vecs=r_vecs, offsets=offsets, neighbor_list=neighbor_list)
-        assert np.isfinite(forces).all()
-        v_prev, _ = solver.Mdot(forces=forces)
-        assert np.isfinite(v_prev).all()
+    # initialise v_prev
+    solver.setPositions(r_vecs)
+    forces = F_calc(r_vecs=r_vecs, offsets=offsets, neighbor_list=neighbor_list)
+    assert np.isfinite(forces).all()
+    v_prev, _ = solver.Mdot(forces=forces)
+    assert np.isfinite(v_prev).all()
 
     for step in tqdm.trange(n_steps, mininterval=60.0, desc="Simulation progress"):
-
-        # print("zmax: ", np.max(r_vecs[2::3]) / a, "zmin: ", np.min(r_vecs[2::3]) / a)
-        # print("percent overlapping wall", 100 * np.sum(r_vecs[2::3] < a) / N)
-
 
         assert np.all(r_vecs[0::3] > -0.5*Lx), f'r_vecs[0::3].min() = {r_vecs[0::3].min()}' # for NBody, we can have x < 0, but not too far
         assert np.all(r_vecs[0::3] <  1.5*Lx), f'r_vecs[0::3].max() = {r_vecs[0::3].max()}'
@@ -209,73 +195,34 @@ def main(a, mg, Lx, Ly, kbt, eta, phi, dt, t_final, t_save, solver_name, z_trap_
             assert np.all(r_vecs[2::3] > 0), f'z min = {r_vecs[2::3].min()/a:.2f}a'
             assert np.all(r_vecs[2::3] < wall_sep), f'z max = {r_vecs[2::3].max()/a:.2f}a (wall_sep = {wall_sep/a:.2f}a)'
 
-        if not using_lubrication_corrs:
-            # no wall => no lubrication
-            assert np.isfinite(r_vecs).all()
-            solver.setPositions(r_vecs)
 
-            forces = F_calc(r_vecs=r_vecs, offsets=offsets, neighbor_list=neighbor_list)
-            assert np.isfinite(forces).all()
+        # no wall => no lubrication
+        assert np.isfinite(r_vecs).all()
+        solver.setPositions(r_vecs)
 
-            t0 = time.time()
-            v_det, _ = solver.Mdot(forces=forces)
-            t1 = time.time()
-            sqrt_m, _ = solver.sqrtMdotW()
-            t2 = time.time()
-            div_m, _ = solver.divM()
-            t3 = time.time()
-            t_mdot = t1 - t0
-            t_sqrt = t2 - t1
-            t_div = t3 - t2
-            t_total = t3 - t0
-            print(f'{t_mdot/t_total:.2%} Mdot, {t_sqrt/t_total:.2%} sqrtM, {t_div/t_total:.2%} divM, total {t_total:.2f}s')
+        forces = F_calc(r_vecs=r_vecs, offsets=offsets, neighbor_list=neighbor_list)
+        assert np.isfinite(forces).all()
 
-            r_vecs += np.sqrt(2 * kbt * dt) * sqrt_m  # stochastic velocity
+        t0 = time.time()
+        v_det, _ = solver.Mdot(forces=forces)
+        t1 = time.time()
+        sqrt_m, _ = solver.sqrtMdotW()
+        t2 = time.time()
+        div_m, _ = solver.divM()
+        t3 = time.time()
+        t_mdot = t1 - t0
+        t_sqrt = t2 - t1
+        t_div = t3 - t2
+        t_total = t3 - t0
+        print(f'{t_mdot/t_total:.2%} Mdot, {t_sqrt/t_total:.2%} sqrtM, {t_div/t_total:.2%} divM, total {t_total*1000:.1f}ms')
 
-            v_det += kbt * div_m.reshape(v_det.shape)
-            r_vecs += dt * (1.5 * v_det - 0.5 * v_prev).reshape(r_vecs.shape)  # deterministic velocity
+        r_vecs += np.sqrt(2 * kbt * dt) * sqrt_m  # stochastic velocity
 
-            v_prev = v_det
+        v_det += kbt * div_m.reshape(v_det.shape)
+        r_vecs += dt * (1.5 * v_det - 0.5 * v_prev).reshape(r_vecs.shape)  # deterministic velocity
 
-        else:
-            solver.setPositions(r_vecs)
+        v_prev = v_det
 
-            # this is algorithm 1 in Sprinkle et al 2020
-
-            ### 1. brownian displacements
-            # dQ = sqrt(2 kT / dt) * { M . ( sqrt(ΔR) * W1 ) + sqrt(M) . W2 }
-            delta_R = lub.delta_R_diag(r_vecs[2::3])
-            sqrt_delta_R = np.sqrt(delta_R)
-
-            W1 = rng.standard_normal(np.shape(sqrt_delta_R))
-            dq = np.sqrt(2 * kbt / dt) * (
-                solver.Mdot((sqrt_delta_R * W1))[0] + solver.sqrtMdotW()[0]
-            )
-
-            ### 2. predictor velocity
-            # find U such that (I + M.ΔR)U = MF + dQ
-            forces = F_calc(r_vecs=r_vecs, offsets=offsets, neighbor_list=neighbor_list)
-            RHS = solver.Mdot(forces=forces.flatten())[0] + dq
-            U_pred = solve_system(solver, lub, r_vecs, RHS, delta_R)
-
-            ### 3. rfd (rfd is an approximation to div(M))
-            div_m, _ = solver.divM()
-
-            ### 4. predictor pos
-            r_pred = r_vecs + dt * U_pred
-            delta_R = lub.delta_R_diag(r_pred[2::3])
-
-            ### 5. corrector velocity
-            solver.setPositions(r_pred)
-            # NOTE: not re-computing neighbors for forces here, but OK for purely diffusive dynamics
-            forces = F_calc(r_vecs=r_pred, offsets=offsets, neighbor_list=neighbor_list)
-            RHS = solver.Mdot(forces=forces.flatten())[0] + (2 * kbt) * div_m + dq
-            # RHS = M . F(r_pred) + 2 kT div M + dq
-
-            U_next = solve_system(solver, lub, r_pred, RHS, delta_R) # find U_next such that (I + M.ΔR)U_next = RHS
-
-            r_next = r_vecs + dt * 0.5 * (U_pred + U_next)
-            r_vecs = r_next
             
         t_current += dt
 
@@ -311,42 +258,6 @@ def main(a, mg, Lx, Ly, kbt, eta, phi, dt, t_final, t_save, solver_name, z_trap_
     print('Done.')
     return output_dir
 
-
-def solve_system(solver, lub, r_vecs, RHS, delta_R):
-    """
-    # find x such that (I + M*ΔR) x = RHS
-    """
-    sys_size = len(r_vecs)
-    RHS_norm = np.linalg.norm(RHS)
-    assert RHS_norm != 0 # this would cause RHS/RHS_norm to be inf
-
-    M_diag = lub.mobility_diag(r_vecs[2::3])
-    solver.setPositions(r_vecs)
-
-    assert np.isfinite(delta_R).all()
-    assert np.isfinite(M_diag).all()
-    apply_A = partial(lub.apply_lubrication_matrix, solver=solver, delta_R=delta_R) # computes (I + M*ΔR)x
-    apply_PC = partial(lub.apply_lubrication_PC, delta_R=delta_R, M_diag=M_diag)
-    A_lub = spla.LinearOperator(
-        (sys_size, sys_size), matvec=apply_A, dtype="float32"  # type: ignore
-    )
-    PC_lub = spla.LinearOperator(
-        (sys_size, sys_size), matvec=apply_PC, dtype="float32"  # type: ignore
-    )
-    res_list = []
-    (U, info) = pyamg.krylov.gmres( # find x such that (I + M*ΔR) x = RHS/RHS_norm
-        A_lub,
-        (RHS / RHS_norm),
-        tol=1e-1,
-        M=PC_lub,
-        maxiter=100,
-        restrt=min(300, sys_size),
-        residuals=res_list,
-    )
-    # print(f"GMRES its: {len(res_list)}")
-    U *= RHS_norm
-
-    return U
 
 
 def calc_force(
@@ -546,6 +457,35 @@ def wall_forces(a, repulsion_strength, debye_length, delta, h):
     return force
 
 
+def get_simulation_dir(solver, N, L, dt, t_final, t_save, wall, mg, a) -> str:
+    dirFound = False
+    runNumber = 0
+    dir = ""
+
+    if t_final % 1 == 0:
+        t_final = int(t_final)
+    if t_save % 1 == 0:
+        t_save = int(t_save)
+
+    if wall:
+        wall_str = f"_{wall}"
+    else:
+        wall_str = "_open"
+
+    extra = ''
+    if mg == 0:
+        extra += '_nograv'
+
+    while not dirFound:
+        dir = f"{STORE_PATH}/solver_{solver}_N_{N}_L_{int(L)}{wall_str}_dt_{dt*1000:.0f}_t_{t_final}_{t_save}_a_{a}{extra}_run_{runNumber}/"
+        if os.path.isdir(dir):
+            print(f"Directory {dir} already exists, trying again...")
+            runNumber += 1
+            continue
+        os.makedirs(dir, exist_ok=False)
+        dirFound = True
+    return dir
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--a',          type=float, default=1.395)
@@ -554,14 +494,13 @@ if __name__ == "__main__":
     parser.add_argument('--dt',         type=float, default=0.1)
     parser.add_argument('--t_final',    type=float, default=60.0 * 60 * 1)
     parser.add_argument('--t_save',     type=float, default=0.5)
-    parser.add_argument('--solver',     type=str,   default='DPStokes')
-    parser.add_argument('--wall',       type=str)
-    parser.add_argument('--wall_sep',   type=float, default=None)
+    parser.add_argument('--solver',     type=str,   default='Self')
+    parser.add_argument('--wall',       type=str,   default='single_wall')
+    parser.add_argument('--wall_sep',   type=float, default=None) # this is for two_walls iirc
     parser.add_argument('--z_width',    type=float, default=None)
     parser.add_argument('--z_position', type=float, default=None)
     parser.add_argument('--initial_dist', type=str, default='flat')
     parser.add_argument('--nograv', action='store_true')
-    parser.add_argument('--nolub', action='store_true')
     args = parser.parse_args()
 
     mg = 0.0592  # m*g, in pN
@@ -601,5 +540,4 @@ if __name__ == "__main__":
         z_trap_position = args.z_position * args.a if args.z_position is not None else None,
         z_trap_width = args.z_width * args.a if args.z_width is not None else None,
         initial_distribution = args.initial_dist,
-        disable_lubrication = args.nolub
     )
