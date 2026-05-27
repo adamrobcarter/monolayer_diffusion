@@ -223,7 +223,6 @@ def main(a, mg, Lx, Ly, kbt, eta, phi, dt, t_final, t_save, solver_name, z_trap_
 
         v_prev = v_det
 
-            
         t_current += dt
 
         if solver_name == 'Self' or solver_name == 'DPStokes':
