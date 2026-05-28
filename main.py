@@ -182,7 +182,7 @@ def main(a, mg, Lx, Ly, kbt, eta, phi, dt, t_final, t_save, solver_name, z_trap_
     v_prev, _ = solver.Mdot(forces=forces)
     assert np.isfinite(v_prev).all()
 
-    for step in tqdm.trange(n_steps, mininterval=60.0, desc="Simulation progress"):
+    for step in tqdm.trange(n_steps, mininterval=1.0, desc="Simulation progress"):
 
         assert np.all(r_vecs[0::3] > -0.5*Lx), f'r_vecs[0::3].min() = {r_vecs[0::3].min()}' # for NBody, we can have x < 0, but not too far
         assert np.all(r_vecs[0::3] <  1.5*Lx), f'r_vecs[0::3].max() = {r_vecs[0::3].max()}'
@@ -214,7 +214,7 @@ def main(a, mg, Lx, Ly, kbt, eta, phi, dt, t_final, t_save, solver_name, z_trap_
         t_sqrt = t2 - t1
         t_div = t3 - t2
         t_total = t3 - t0
-        print(f'{t_mdot/t_total:.2%} Mdot, {t_sqrt/t_total:.2%} sqrtM, {t_div/t_total:.2%} divM, total {t_total*1000:.1f}ms')
+        # print(f'{t_mdot/t_total:.2%} Mdot, {t_sqrt/t_total:.2%} sqrtM, {t_div/t_total:.2%} divM, total {t_total*1000:.1f}ms')
 
         r_vecs += np.sqrt(2 * kbt * dt) * sqrt_m  # stochastic velocity
 
@@ -455,35 +455,6 @@ def wall_forces(a, repulsion_strength, debye_length, delta, h):
                 )
     return force
 
-
-def get_simulation_dir(solver, N, L, dt, t_final, t_save, wall, mg, a) -> str:
-    dirFound = False
-    runNumber = 0
-    dir = ""
-
-    if t_final % 1 == 0:
-        t_final = int(t_final)
-    if t_save % 1 == 0:
-        t_save = int(t_save)
-
-    if wall:
-        wall_str = f"_{wall}"
-    else:
-        wall_str = "_open"
-
-    extra = ''
-    if mg == 0:
-        extra += '_nograv'
-
-    while not dirFound:
-        dir = f"{STORE_PATH}/solver_{solver}_N_{N}_L_{int(L)}{wall_str}_dt_{dt*1000:.0f}_t_{t_final}_{t_save}_a_{a}{extra}_run_{runNumber}/"
-        if os.path.isdir(dir):
-            print(f"Directory {dir} already exists, trying again...")
-            runNumber += 1
-            continue
-        os.makedirs(dir, exist_ok=False)
-        dirFound = True
-    return dir
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

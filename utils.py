@@ -147,7 +147,7 @@ def get_simulation_dir(solver, N, L, dt, t_final, t_save, wall, mg, disable_lubr
         extra += '_nolub'
 
     while not dirFound:
-        dir = f"{STORE_PATH}/cartera/libmobility_diffusion/solver_{solver}_N_{N}_L_{int(L)}{wall_str}_dt_{dt*1000:.0f}_t_{t_final}_{t_save}_a_{a}{extra}_run_{runNumber}/"
+        dir = f"{STORE_PATH}/solver_{solver}_N_{N}_L_{int(L)}{wall_str}_dt_{dt*1000:.0f}_t_{t_final}_{t_save}_a_{a}{extra}_run_{runNumber}/"
         if os.path.isdir(dir):
             print(f"Directory {dir} already exists, trying again...")
             runNumber += 1
