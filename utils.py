@@ -8,6 +8,7 @@ import sys
 # sys.path.append(os.path.expanduser("~/libmobility_diffusion/lubrication/"))
 # ##### FIXME DO NOT COMMIT
 # from Lubrication import Lubrication
+import tqdm
 
 STORE_PATH = 'store'
 
@@ -51,6 +52,21 @@ def read_binary_file(dir) -> np.ndarray:
     data = np.fromfile(pos_file, dtype=dtype)
     data = data.reshape((n_rows, row_size))
     return data
+
+def ryker_to_trackpy(data_ryker, num_expected_timesteps, num_colloids):
+    print(f'creating data, will be {(num_colloids*num_expected_timesteps, 5)} {num_colloids * num_expected_timesteps * 5 * 4/1e9:.1f}GB')
+    # assert data_ryker.nbytes + num_colloids * num_expected_timesteps * 5 * 4 < 100e9
+    data = np.full((num_colloids*num_expected_timesteps, 5), np.nan, dtype=np.float32)
+
+    for t in tqdm.trange(num_expected_timesteps, desc='converting format Ryker > Trackpy'):
+        xyz_this_timestep = data_ryker[t, 1:]
+        starting_row_i = t*num_colloids
+        data[starting_row_i:starting_row_i+num_colloids, [0, 1, 2]] = xyz_this_timestep.reshape((num_colloids, 3))
+        data[starting_row_i:starting_row_i+num_colloids, 3] = t
+        data[starting_row_i:starting_row_i+num_colloids, 4] = np.arange(num_colloids)
+
+    return data
+    
 
 
 def create_solvers(solver_name, Lx, Ly, a, eta, lub_cut, tol=1e-1, includeAngular=True, wall=False, wall_sep=None):
