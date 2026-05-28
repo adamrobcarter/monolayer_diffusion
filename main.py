@@ -190,9 +190,9 @@ def main(a, mg, Lx, Ly, kbt, eta, phi, dt, t_final, t_save, solver_name, z_trap_
         assert np.all(r_vecs[1::3] <  1.5*Ly), f'r_vecs[1::3].max() = {r_vecs[1::3].max()}'
 
         if wall == 'single_wall':
-            assert np.all(r_vecs[2::3] > 0), f'z min = {r_vecs[2::3].min()/a:.2f}a' # note this should actually be a, but the particles can be slightly inside the wall
+            assert np.all(r_vecs[2::3] > 0), f'z min = {r_vecs[2::3].min()/a:.2f}a, particles are overlapping the wall' # note this should actually be a, but the particles can be slightly inside the wall
         if wall == 'two_walls':
-            assert np.all(r_vecs[2::3] > 0), f'z min = {r_vecs[2::3].min()/a:.2f}a'
+            assert np.all(r_vecs[2::3] > 0), f'z min = {r_vecs[2::3].min()/a:.2f}a, particles are overlapping the wall'
             assert np.all(r_vecs[2::3] < wall_sep), f'z max = {r_vecs[2::3].max()/a:.2f}a (wall_sep = {wall_sep/a:.2f}a)'
 
 
