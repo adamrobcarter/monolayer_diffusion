@@ -13,7 +13,7 @@ import os
 import utils
 
 
-def main(a, mg, Lx, Ly, kbt, eta, phi, dt, t_final, t_save, solver_name, z_trap_width=None, z_trap_position=None,
+def main(a, mg, Lx, Ly, kbt, eta, phi, bool_attrac, range_attrac, D_e, w, r_e, dt, t_final, t_save, solver_name, z_trap_width=None, z_trap_position=None,
          wall=None, wall_sep=0.0, initial_distribution='flat', gravity=True,
          theta=0):
     
@@ -69,7 +69,7 @@ def main(a, mg, Lx, Ly, kbt, eta, phi, dt, t_final, t_save, solver_name, z_trap_
     firm_delta = 1e-2
     debye_length = 2.0 * a * firm_delta / np.log(10.0)
     n_cutoff = 4  # number of debye lengths to include in the cutoff
-    r_cut = 2 * a + n_cutoff * debye_length
+    r_cut = 2 * a + n_cutoff * debye_length + range_attrac
     U_0 = 4 * kbt
     nlist_buffer = 3.0  # in units of blob radius
 
@@ -121,6 +121,11 @@ def main(a, mg, Lx, Ly, kbt, eta, phi, dt, t_final, t_save, solver_name, z_trap_
         delta=firm_delta,
         mg=mg,
         N=N,
+        bool_attrac=bool_attrac, 
+        range_attrac=range_attrac, 
+        D_e=D_e, 
+        w=w, 
+        r_e=r_e,
         z_trap_width=z_trap_width,
         z_trap_position=z_trap_position,
         wall=wall,
@@ -158,6 +163,11 @@ def main(a, mg, Lx, Ly, kbt, eta, phi, dt, t_final, t_save, solver_name, z_trap_
         "n_save": n_save,
         "wall": wall,
         'initial_distribution': initial_distribution,
+        'bool_attrac': bool_attrac, 
+        'range_attrac': range_attrac, 
+        'D_e': D_e, 
+        'w': w, 
+        'r_e': r_e,
     }
     if z_trap_width:
         params["z_trap_width"] = z_trap_width
@@ -272,6 +282,11 @@ def calc_force(
     delta,
     mg,
     N,
+    bool_attrac, 
+    range_attrac, 
+    D_e, 
+    w, 
+    r_e,
     z_trap_width=None,
     z_trap_position=None,
     wall=None,
@@ -298,6 +313,11 @@ def calc_force(
         delta=delta,
         list_of_neighbors=neighbor_list,
         offsets=offsets,
+        bool_attrac=bool_attrac, 
+        range_attrac=range_attrac, 
+        D_e=D_e, 
+        w=w, 
+        r_e=r_e,
         wall=wall,
         wall_sep=wall_sep
     )
@@ -373,6 +393,11 @@ def blob_blob_sterics(
     delta,
     list_of_neighbors,
     offsets,
+    bool_attrac, 
+    range_attrac, 
+    D_e, 
+    w, 
+    r_e,
     wall=None,
     wall_sep=0.0
 ):
@@ -415,16 +440,24 @@ def blob_blob_sterics(
             offset = 2.0 * a * (1 - delta)
             temp_r = max(r_norm, 1.0e-12)
             inv_r_norm = 1 / temp_r
-            if r_norm > offset:
-                prefactor = (
-                    -(repulsion_strength / debye_length)
-                    * np.exp(-(r_norm - offset) / debye_length)
-                    * inv_r_norm
-                )
-            else:
-                prefactor = -(repulsion_strength / debye_length) * inv_r_norm
+            
+            if bool_attrac==False:
+                
+                if r_norm > offset:
+                    prefactor = (
+                        -(repulsion_strength / debye_length)
+                        * np.exp(-(r_norm - offset) / debye_length)
+                        * inv_r_norm
+                    )
+                else:
+                    prefactor = -(repulsion_strength / debye_length) * inv_r_norm
 
-            force[i] += prefactor * dr
+                force[i] += prefactor * dr
+
+            else:
+                r_e_centers=r_e+2*a
+                prefactor = 2*w*D_e*kbt*(1-np.exp(-w*(r_norm-r_e_centers)))*np.exp(-w*(r_norm-r_e_centers))
+                force[i] += prefactor * dr 
 
         # wall sterics
         if wall == 'single_wall':
@@ -458,18 +491,25 @@ def wall_forces(a, repulsion_strength, debye_length, delta, h):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('--a',          type=float, default=1.395)
-    parser.add_argument('--phi',        type=float, default=0.114)
-    parser.add_argument('--L',          type=float, default=640)
-    parser.add_argument('--dt',         type=float, default=0.1)
-    parser.add_argument('--t_final',    type=float, default=60.0 * 60 * 1)
-    parser.add_argument('--t_save',     type=float, default=0.5)
-    parser.add_argument('--solver',     type=str,   default='Self')
-    parser.add_argument('--wall',       type=str,   default='single_wall')
-    parser.add_argument('--wall_sep',   type=float, default=None) # this is for two_walls iirc
-    parser.add_argument('--z_width',    type=float, default=None)
-    parser.add_argument('--z_position', type=float, default=None)
-    parser.add_argument('--initial_dist', type=str, default='flat')
+    parser.add_argument('--a',           type=float, default=1.395)
+    parser.add_argument('--phi',         type=float, default=0.114)
+
+    parser.add_argument('--bool_attrac',  type=bool,  default=True) #decides wether or not we add the depletion attraction
+    parser.add_argument('--range_attrac',type=float, default=1.395*1.5) #it decides where we cut the potential
+    parser.add_argument('--D_e',         type=float, default=2) #well depth, in kbt 
+    parser.add_argument('--w',           type=float, default=6) #controls the width of the well
+    parser.add_argument('--r_e',         type=float, default=0.16) #equilibrium bond distance between surfaces of colloids
+
+    parser.add_argument('--L',           type=float, default=640)
+    parser.add_argument('--dt',          type=float, default=0.1)
+    parser.add_argument('--t_final',     type=float, default=60.0 * 60 * 1)
+    parser.add_argument('--t_save',      type=float, default=0.1)
+    parser.add_argument('--solver',      type=str,   default='Self')
+    parser.add_argument('--wall',        type=str,   default='single_wall')
+    parser.add_argument('--wall_sep',    type=float, default=None) # this is for two_walls iirc
+    parser.add_argument('--z_width',     type=float, default=None)
+    parser.add_argument('--z_position',  type=float, default=None)
+    parser.add_argument('--initial_dist',type=str, default='flat')
     parser.add_argument('--nograv', action='store_true')
     args = parser.parse_args()
 
@@ -501,6 +541,11 @@ if __name__ == "__main__":
         kbt = kbt,
         eta = eta,
         phi = args.phi,
+        bool_attrac = args.bool_attrac,
+        range_attrac = args.range_attrac,
+        D_e = args.D_e,
+        w = args.w,
+        r_e =args.r_e,
         dt = args.dt,
         t_final = args.t_final,
         t_save = args.t_save,
