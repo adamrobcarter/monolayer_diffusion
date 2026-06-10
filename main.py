@@ -13,7 +13,7 @@ import os
 import utils
 
 
-def main(a, mg, Lx, Ly, kbt, eta, phi, bool_attrac, range_attrac, D_e, w, r_e, dt, t_final, t_save, solver_name, z_trap_width=None, z_trap_position=None,
+def main(a, mg, Lx, Ly, kbt, eta, phi, bool_attrac, range_attrac, D_e, w, r_e, fact_wall, dt, t_final, t_save, solver_name, z_trap_width=None, z_trap_position=None,
          wall=None, wall_sep=0.0, initial_distribution='flat', gravity=True,
          theta=0):
     
@@ -40,7 +40,7 @@ def main(a, mg, Lx, Ly, kbt, eta, phi, bool_attrac, range_attrac, D_e, w, r_e, d
     assert np.isscalar(Ly)
     assert np.isscalar(mg), f'mg should be a scalar, but was {mg} of type {type(mg)}'
     
-    L = np.array([Lx, Ly, 0], dtype=np.float64)
+    L = np.array([Lx, Ly, 0])
 
     h_g = a + (kbt / mg)
     print("gravity height: ", h_g - a)
@@ -126,6 +126,7 @@ def main(a, mg, Lx, Ly, kbt, eta, phi, bool_attrac, range_attrac, D_e, w, r_e, d
         D_e=D_e, 
         w=w, 
         r_e=r_e,
+        fact_wall=fact_wall,
         z_trap_width=z_trap_width,
         z_trap_position=z_trap_position,
         wall=wall,
@@ -168,6 +169,7 @@ def main(a, mg, Lx, Ly, kbt, eta, phi, bool_attrac, range_attrac, D_e, w, r_e, d
         'D_e': D_e, 
         'w': w, 
         'r_e': r_e,
+        'fact_wall' : fact_wall,
     }
     if z_trap_width:
         params["z_trap_width"] = z_trap_width
@@ -287,6 +289,7 @@ def calc_force(
     D_e, 
     w, 
     r_e,
+    fact_wall,
     z_trap_width=None,
     z_trap_position=None,
     wall=None,
@@ -318,6 +321,7 @@ def calc_force(
         D_e=D_e, 
         w=w, 
         r_e=r_e,
+        fact_wall=fact_wall,
         wall=wall,
         wall_sep=wall_sep
     )
@@ -374,7 +378,8 @@ def blob_external_force_z_confinement_numba(r_vectors, kT, z0, z_trap_width):
     #potential (z-z0)^2 * k_s/2
     #force 2(z-z0) * k_s/2
     # k_s = k_B T / z_trap_width**2    # https://link.aps.org/doi/10.1103/PhysRevE.95.012602 eq 1, z_trap_width === delta
-    
+    #only used if there is no wall
+
     N = r_vectors.size // 3
     r_vectors = r_vectors.reshape((N, 3))
     f = np.zeros((N, 3))
@@ -398,6 +403,7 @@ def blob_blob_sterics(
     D_e, 
     w, 
     r_e,
+    fact_wall,
     wall=None,
     wall_sep=0.0
 ):
@@ -456,13 +462,17 @@ def blob_blob_sterics(
 
             else:
                 r_e_centers=r_e+2*a
-                prefactor = 2*w*D_e*kbt*(1-np.exp(-w*(r_norm-r_e_centers)))*np.exp(-w*(r_norm-r_e_centers))
-                force[i] += prefactor * dr 
+                prefactor = 2*w*(D_e*kbt)*(1-np.exp(-w*(r_norm-r_e_centers)))*np.exp(-w*(r_norm-r_e_centers))
+                force[i] += prefactor * dr *inv_r_norm
 
         # wall sterics
         if wall == 'single_wall':
             h = r_vectors[i, 2]
-            force[i, :] += wall_forces(a, repulsion_strength, debye_length, delta, h)
+            if bool_attrac==False:
+                force[i, :] += wall_forces(a, repulsion_strength, debye_length, delta, h)
+            else:
+                force[i, :] += wall_forces_attrac(a, w, D_e, r_e, fact_wall, delta, h)
+                #force[i, :] += wall_forces(a, repulsion_strength, debye_length, delta, h)
 
         elif wall == 'two_walls':
             # assert False
@@ -488,6 +498,14 @@ def wall_forces(a, repulsion_strength, debye_length, delta, h):
                 )
     return force
 
+@njit(fastmath=True)
+def wall_forces_attrac(a, w, D_e, r_e, fact_wall,delta, h):
+    # we treat the repulsion with the wall as a repulsion between two particles but with a factor of "fact_wall"
+    r_e_centers2= r_e+2*a
+    r_virtual = a +h #repulsion as if there were a virtual particlein the wall (of radius a)
+    force = np.zeros(3)
+    force[2] += -fact_wall*2*w*D_e*kbt*(1-np.exp(-w*(r_virtual-r_e_centers2)))*np.exp(-w*(r_virtual-r_e_centers2))
+    return force
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -499,6 +517,7 @@ if __name__ == "__main__":
     parser.add_argument('--D_e',         type=float, default=2) #well depth, in kbt 
     parser.add_argument('--w',           type=float, default=6) #controls the width of the well
     parser.add_argument('--r_e',         type=float, default=0.16) #equilibrium bond distance between surfaces of colloids
+    parser.add_argument('--fact_wall',   type=float, default=1/0.6) #factor of intensity of interaction with the wall in comparison to the one between particles
 
     parser.add_argument('--L',           type=float, default=640)
     parser.add_argument('--dt',          type=float, default=0.1)
@@ -546,6 +565,7 @@ if __name__ == "__main__":
         D_e = args.D_e,
         w = args.w,
         r_e =args.r_e,
+        fact_wall=args.fact_wall,
         dt = args.dt,
         t_final = args.t_final,
         t_save = args.t_save,
