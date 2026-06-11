@@ -413,6 +413,7 @@ def blob_blob_sterics(
     wall_sep=0.0
 ):
     """
+    if bool_attrac==False:
     The force is derived from the potential
 
     U(r) = U0 + U0 * (2*a-r)/b   if z<2*a
@@ -423,6 +424,16 @@ def blob_blob_sterics(
     r_norm = distance between blobs
     b = Debye length
     a = blob_radius
+
+
+    if bool_attrac==True:
+    The force is derived from the potential
+    U(r) = D_e_J * ( 1 - exp(-w(r-r_e)) )**2 
+
+    with r the distance between the centers of the blobs
+
+    Which means the force (projected on the radial vector) is :
+    F(r) = -2*w*D_e_J * ( 1 - exp(-w(r-r_e) ) * exp(-w(r-r_e))
     """
 
     N = r_vectors.size // 3
@@ -439,6 +450,7 @@ def blob_blob_sterics(
             dr = np.zeros(3)
             for k in range(3):
                 dr[k] = r_vectors[j, k] - r_vectors[i, k]
+                #part that take into account the boundary conditions to calculate distances
                 if L[k] > 0:
                     dr[k] -= (
                         int(dr[k] / L[k] + 0.5 * (int(dr[k] > 0) - int(dr[k] < 0)))
@@ -452,8 +464,9 @@ def blob_blob_sterics(
             temp_r = max(r_norm, 1.0e-12)
             inv_r_norm = 1 / temp_r
             
+            #colloid-colloid interaction
             if bool_attrac==False:
-                
+                #steric interaction between colloids
                 if r_norm > offset:
                     prefactor = (
                         -(repulsion_strength / debye_length)
@@ -466,18 +479,21 @@ def blob_blob_sterics(
                 force[i] += prefactor * dr
 
             else:
+                #Morse interaction between colloids
                 r_e_centers=r_e+2*a
                 prefactor = 2*w*(D_e*kbt)*(1-np.exp(-w*(r_norm-r_e_centers)))*np.exp(-w*(r_norm-r_e_centers))
                 force[i] += prefactor * dr *inv_r_norm
 
-        # wall sterics
+
+        #wall interaction
         if wall == 'single_wall':
             h = r_vectors[i, 2]
             if bool_attrac_wall==False:
+                # wall sterics
                 force[i, :] += wall_forces(a, repulsion_strength, debye_length, delta, h)
             else:
+                # wall Morse interaction
                 force[i, :] += wall_forces_attrac(a, w, D_e, r_e, fact_wall, delta, h)
-                #force[i, :] += wall_forces(a, repulsion_strength, debye_length, delta, h)
 
         elif wall == 'two_walls':
             # assert False
@@ -505,7 +521,7 @@ def wall_forces(a, repulsion_strength, debye_length, delta, h):
 
 @njit(fastmath=True)
 def wall_forces_attrac(a, w, D_e, r_e, fact_wall,delta, h):
-    # we treat the repulsion with the wall as a repulsion between two particles but with a factor of "fact_wall"
+    # we treat the repulsion with the wall as a repulsion between two particles but with a factor of "fact_wall" (Morse Potential)
     r_e_centers2= r_e+2*a
     r_virtual = a +h #repulsion as if there were a virtual particlein the wall (of radius a)
     force = np.zeros(3)
