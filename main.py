@@ -13,7 +13,7 @@ import os
 import utils
 
 
-def main(a, mg, Lx, Ly, kbt, eta, phi, bool_attrac, range_attrac, D_e, w, r_e, fact_wall, dt, t_final, t_save, solver_name, z_trap_width=None, z_trap_position=None,
+def main(a, mg, Lx, Ly, kbt, eta, phi, bool_attrac, bool_attrac_wall, range_attrac, D_e, w, r_e, fact_wall, dt, t_final, t_save, solver_name, z_trap_width=None, z_trap_position=None,
          wall=None, wall_sep=0.0, initial_distribution='flat', gravity=True,
          theta=0):
     
@@ -122,6 +122,7 @@ def main(a, mg, Lx, Ly, kbt, eta, phi, bool_attrac, range_attrac, D_e, w, r_e, f
         mg=mg,
         N=N,
         bool_attrac=bool_attrac, 
+        bool_attrac_wall=bool_attrac_wall,
         range_attrac=range_attrac, 
         D_e=D_e, 
         w=w, 
@@ -165,6 +166,7 @@ def main(a, mg, Lx, Ly, kbt, eta, phi, bool_attrac, range_attrac, D_e, w, r_e, f
         "wall": wall,
         'initial_distribution': initial_distribution,
         'bool_attrac': bool_attrac, 
+        'bool_attrac_wall': bool_attrac_wall,
         'range_attrac': range_attrac, 
         'D_e': D_e, 
         'w': w, 
@@ -285,6 +287,7 @@ def calc_force(
     mg,
     N,
     bool_attrac, 
+    bool_attrac_wall,
     range_attrac, 
     D_e, 
     w, 
@@ -316,7 +319,8 @@ def calc_force(
         delta=delta,
         list_of_neighbors=neighbor_list,
         offsets=offsets,
-        bool_attrac=bool_attrac, 
+        bool_attrac=bool_attrac,
+        bool_attrac_wall=bool_attrac_wall, 
         range_attrac=range_attrac, 
         D_e=D_e, 
         w=w, 
@@ -399,6 +403,7 @@ def blob_blob_sterics(
     list_of_neighbors,
     offsets,
     bool_attrac, 
+    bool_attrac_wall,
     range_attrac, 
     D_e, 
     w, 
@@ -468,7 +473,7 @@ def blob_blob_sterics(
         # wall sterics
         if wall == 'single_wall':
             h = r_vectors[i, 2]
-            if bool_attrac==False:
+            if bool_attrac_wall==False:
                 force[i, :] += wall_forces(a, repulsion_strength, debye_length, delta, h)
             else:
                 force[i, :] += wall_forces_attrac(a, w, D_e, r_e, fact_wall, delta, h)
@@ -509,26 +514,27 @@ def wall_forces_attrac(a, w, D_e, r_e, fact_wall,delta, h):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('--a',           type=float, default=1.395)
-    parser.add_argument('--phi',         type=float, default=0.114)
+    parser.add_argument('--a',               type=float, default=1.395)
+    parser.add_argument('--phi',             type=float, default=0.114)
 
-    parser.add_argument('--bool_attrac',  type=bool,  default=True) #decides wether or not we add the depletion attraction
-    parser.add_argument('--range_attrac',type=float, default=1.395*1.5) #it decides where we cut the potential
-    parser.add_argument('--D_e',         type=float, default=2) #well depth, in kbt 
-    parser.add_argument('--w',           type=float, default=6) #controls the width of the well
-    parser.add_argument('--r_e',         type=float, default=0.16) #equilibrium bond distance between surfaces of colloids
-    parser.add_argument('--fact_wall',   type=float, default=1/0.6) #factor of intensity of interaction with the wall in comparison to the one between particles
+    parser.add_argument('--bool_attrac',     type=bool,  default=True) #decides wether or not we add the depletion attraction
+    parser.add_argument('--bool_attrac_wall',type=bool,  default=True) #decides wether or not we add the depletion attraction with the wall (avoids stacking at high packing fraction)
+    parser.add_argument('--range_attrac',    type=float, default=1.395*1.5) #it decides where we cut the potential
+    parser.add_argument('--D_e',             type=float, default=2) #well depth, in kbt 
+    parser.add_argument('--w',               type=float, default=6) #controls the width of the well
+    parser.add_argument('--r_e',             type=float, default=0.16) #equilibrium bond distance between surfaces of colloids
+    parser.add_argument('--fact_wall',       type=float, default=1/0.6) #factor of intensity of interaction with the wall in comparison to the one between particles
 
-    parser.add_argument('--L',           type=float, default=640)
-    parser.add_argument('--dt',          type=float, default=0.1)
-    parser.add_argument('--t_final',     type=float, default=60.0 * 60 * 1)
-    parser.add_argument('--t_save',      type=float, default=0.1)
-    parser.add_argument('--solver',      type=str,   default='Self')
-    parser.add_argument('--wall',        type=str,   default='single_wall')
-    parser.add_argument('--wall_sep',    type=float, default=None) # this is for two_walls iirc
-    parser.add_argument('--z_width',     type=float, default=None)
-    parser.add_argument('--z_position',  type=float, default=None)
-    parser.add_argument('--initial_dist',type=str, default='flat')
+    parser.add_argument('--L',               type=float, default=640)
+    parser.add_argument('--dt',              type=float, default=0.1)
+    parser.add_argument('--t_final',         type=float, default=60.0 * 60 * 1)
+    parser.add_argument('--t_save',          type=float, default=0.1)
+    parser.add_argument('--solver',          type=str,   default='Self')
+    parser.add_argument('--wall',            type=str,   default='single_wall')
+    parser.add_argument('--wall_sep',        type=float, default=None) # this is for two_walls iirc
+    parser.add_argument('--z_width',         type=float, default=None)
+    parser.add_argument('--z_position',      type=float, default=None)
+    parser.add_argument('--initial_dist',    type=str, default='flat')
     parser.add_argument('--nograv', action='store_true')
     args = parser.parse_args()
 
@@ -561,6 +567,7 @@ if __name__ == "__main__":
         eta = eta,
         phi = args.phi,
         bool_attrac = args.bool_attrac,
+        bool_attrac_wall = args.bool_attrac_wall,
         range_attrac = args.range_attrac,
         D_e = args.D_e,
         w = args.w,
