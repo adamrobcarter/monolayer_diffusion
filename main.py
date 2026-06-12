@@ -13,7 +13,7 @@ import os
 import utils
 
 
-def main(a, mg, Lx, Ly, kbt, eta, phi, bool_attrac, bool_attrac_wall, range_attrac, D_e, w, r_e, fact_wall, dt, t_final, t_save, solver_name, z_trap_width=None, z_trap_position=None,
+def main(a, mg, Lx, Ly, kbt, eta, phi, bool_interaction, bool_attrac, bool_attrac_wall, range_attrac, D_e, w, r_e, fact_wall, dt, t_final, t_save, solver_name, z_trap_width=None, z_trap_position=None,
          wall=None, wall_sep=0.0, initial_distribution='flat', gravity=True,
          theta=0):
     
@@ -121,6 +121,7 @@ def main(a, mg, Lx, Ly, kbt, eta, phi, bool_attrac, bool_attrac_wall, range_attr
         delta=firm_delta,
         mg=mg,
         N=N,
+        bool_interaction=bool_interaction,
         bool_attrac=bool_attrac, 
         bool_attrac_wall=bool_attrac_wall,
         range_attrac=range_attrac, 
@@ -165,6 +166,7 @@ def main(a, mg, Lx, Ly, kbt, eta, phi, bool_attrac, bool_attrac_wall, range_attr
         "n_save": n_save,
         "wall": wall,
         'initial_distribution': initial_distribution,
+        'bool_interaction': bool_interaction,
         'bool_attrac': bool_attrac, 
         'bool_attrac_wall': bool_attrac_wall,
         'range_attrac': range_attrac, 
@@ -286,6 +288,7 @@ def calc_force(
     delta,
     mg,
     N,
+    bool_interaction,
     bool_attrac, 
     bool_attrac_wall,
     range_attrac, 
@@ -319,6 +322,7 @@ def calc_force(
         delta=delta,
         list_of_neighbors=neighbor_list,
         offsets=offsets,
+        bool_interaction=bool_interaction,
         bool_attrac=bool_attrac,
         bool_attrac_wall=bool_attrac_wall, 
         range_attrac=range_attrac, 
@@ -402,6 +406,7 @@ def blob_blob_sterics(
     delta,
     list_of_neighbors,
     offsets,
+    bool_interaction,
     bool_attrac, 
     bool_attrac_wall,
     range_attrac, 
@@ -439,51 +444,52 @@ def blob_blob_sterics(
     N = r_vectors.size // 3
     force = np.zeros((N, 3))
 
-    for i in prange(N):
+    
+    for i in range(N):
         # for j in range(N):
-        for kk in range(offsets[i + 1] - offsets[i]):
-            j = list_of_neighbors[offsets[i] + kk]
+        if bool_interaction==True:
+            for kk in range(int(offsets[i + 1] - offsets[i])):
+                j = list_of_neighbors[offsets[i] + kk]
 
-            if i == j:
-                continue
+                if i == j:
+                    continue
 
-            dr = np.zeros(3)
-            for k in range(3):
-                dr[k] = r_vectors[j, k] - r_vectors[i, k]
-                #part that take into account the boundary conditions to calculate distances
-                if L[k] > 0:
-                    dr[k] -= (
-                        int(dr[k] / L[k] + 0.5 * (int(dr[k] > 0) - int(dr[k] < 0)))
-                        * L[k]
-                    )
+                dr = np.zeros(3)
+                for k in range(3):
+                    dr[k] = r_vectors[j, k] - r_vectors[i, k]
+                    #part that take into account the boundary conditions to calculate distances
+                    if L[k] > 0:
+                        dr[k] -= (
+                            int(dr[k] / L[k] + 0.5 * (int(dr[k] > 0) - int(dr[k] < 0)))
+                            * L[k]
+                        )
 
-            # Compute force
-            r_norm = np.sqrt(dr[0] * dr[0] + dr[1] * dr[1] + dr[2] * dr[2])
+                # Compute force
+                r_norm = np.sqrt(dr[0] * dr[0] + dr[1] * dr[1] + dr[2] * dr[2])
 
-            offset = 2.0 * a * (1 - delta)
-            temp_r = max(r_norm, 1.0e-12)
-            inv_r_norm = 1 / temp_r
-            
-            #colloid-colloid interaction
-            if bool_attrac==False:
-                #steric interaction between colloids
-                if r_norm > offset:
-                    prefactor = (
-                        -(repulsion_strength / debye_length)
-                        * np.exp(-(r_norm - offset) / debye_length)
-                        * inv_r_norm
-                    )
+                offset = 2.0 * a * (1 - delta)
+                temp_r = max(r_norm, 1.0e-12)
+                inv_r_norm = 1 / temp_r
+                
+                #colloid-colloid interaction
+                if bool_attrac==False:
+                    #steric interaction between colloids
+                    if r_norm > offset:
+                        prefactor = (
+                            -(repulsion_strength / debye_length)
+                            * np.exp(-(r_norm - offset) / debye_length)
+                            * inv_r_norm
+                        )
+                    else:
+                        prefactor = -(repulsion_strength / debye_length) * inv_r_norm
+
+                    force[i] += prefactor * dr
+
                 else:
-                    prefactor = -(repulsion_strength / debye_length) * inv_r_norm
-
-                force[i] += prefactor * dr
-
-            else:
-                #Morse interaction between colloids
-                r_e_centers=r_e+2*a
-                prefactor = 2*w*(D_e*kbt)*(1-np.exp(-w*(r_norm-r_e_centers)))*np.exp(-w*(r_norm-r_e_centers))
-                force[i] += prefactor * dr *inv_r_norm
-
+                    #Morse interaction between colloids
+                    r_e_centers=r_e+2*a
+                    prefactor = 2*w*(D_e*kbt)*(1-np.exp(-w*(r_norm-r_e_centers)))*np.exp(-w*(r_norm-r_e_centers))
+                    force[i] += prefactor * dr *inv_r_norm
 
         #wall interaction
         if wall == 'single_wall':
@@ -533,6 +539,7 @@ if __name__ == "__main__":
     parser.add_argument('--a',               type=float, default=1.395)
     parser.add_argument('--phi',             type=float, default=0.114)
 
+    parser.add_argument('--bool_interaction',type=float, default=True)
     parser.add_argument('--bool_attrac',     type=bool,  default=True) #decides wether or not we add the depletion attraction
     parser.add_argument('--bool_attrac_wall',type=bool,  default=True) #decides wether or not we add the depletion attraction with the wall (avoids stacking at high packing fraction)
     parser.add_argument('--range_attrac',    type=float, default=1.395*1.5) #it decides where we cut the potential
@@ -582,6 +589,7 @@ if __name__ == "__main__":
         kbt = kbt,
         eta = eta,
         phi = args.phi,
+        bool_interaction = args.bool_interaction,
         bool_attrac = args.bool_attrac,
         bool_attrac_wall = args.bool_attrac_wall,
         range_attrac = args.range_attrac,
