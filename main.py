@@ -539,9 +539,9 @@ if __name__ == "__main__":
     parser.add_argument('--a',               type=float, default=1.395)
     parser.add_argument('--phi',             type=float, default=0.114)
 
-    parser.add_argument('--bool_interaction',type=bool, default=True) #decides wether or not the colloids interacts with each other 
-    parser.add_argument('--bool_attrac',     type=bool,  default=True) #decides wether or not we add the depletion attraction
-    parser.add_argument('--bool_attrac_wall',type=bool,  default=True) #decides wether or not we add the depletion attraction with the wall (avoids stacking at high packing fraction)
+    parser.add_argument('--bool_interaction', action='store_false') #decides wether or not the colloids interacts with each other : type "--bool_interaction" to deactivate the interactions (store False)
+    parser.add_argument('--bool_attrac', action='store_false') #decides wether or not we add the depletion attraction
+    parser.add_argument('--bool_attrac_wall', action='store_false') #decides wether or not we add the depletion attraction with the wall (avoids stacking at high packing fraction)
     parser.add_argument('--range_attrac',    type=float, default=1.395*1.5) #it decides where we cut the potential
     parser.add_argument('--D_e',             type=float, default=2) #well depth, in kbt 
     parser.add_argument('--w',               type=float, default=6) #controls the width of the well
