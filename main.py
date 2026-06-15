@@ -445,7 +445,7 @@ def blob_blob_sterics(
     force = np.zeros((N, 3))
 
     
-    for i in range(N):
+    for i in prange(N):
         # for j in range(N):
         if bool_interaction==True:
             for kk in range(int(offsets[i + 1] - offsets[i])):
